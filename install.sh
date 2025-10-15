@@ -1,42 +1,54 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Final automated installer for Termux
+# Behavior:
+#  - Update/upgrade Termux packages
+#  - Install python, git, curl, nano
+#  - Install python deps (dnspython, requests, tqdm, tabulate) into user site
+#  - Create project folder ~/dns_client with dns_full_fullcheck.py and dns_run_menu.sh
+#  - Run menu automatically at the end. In the menu user will be asked to type @ana_service
+#    to actually start choosing ISP and testing.
+
 clear
 echo "======================================="
 echo "Welcome! Please join my Telegram channel:"
 echo "@ANA_Service"
 echo "======================================="
 echo ""
-echo "To run the DNS Client menu, type @ANA_Service and press Enter:"
-read user_input
-
-if [ "$user_input" != "@ANA_Service" ]; then
-    echo "You did not type @ANA_Service. Exiting..."
-    exit 1
-fi
+echo "Installer will setup Termux environment and then show the menu."
+echo "You do NOT need to type @ANA_Service now — you will be asked inside the menu."
+echo ""
+read -p "Press Enter to start (Ctrl+C to cancel)..."
 
 echo ""
-echo "Setting up Termux environment..."
-echo "[1/6] Updating packages..."
+echo "[1/6] Updating Termux packages..."
 pkg update -y || true
 pkg upgrade -y || true
 
+echo ""
 echo "[2/6] Installing base packages (python, git, curl, nano)..."
 pkg install -y python git curl nano || true
 
-echo "[3/6] Ensuring pip (user) and adding ~/.local/bin to PATH..."
-# termux python already provides pip; avoid reinstalling system pip
+echo ""
+echo "[3/6] Ensuring pip user and adding ~/.local/bin to PATH..."
+# Termux provides pip; avoid reinstalling system pip. Ensure local bin in PATH.
 export PATH="$HOME/.local/bin:$PATH" || true
 
+echo ""
 echo "[4/6] Installing Python packages (user install)..."
-python -m pip install --user --upgrade pip || true
+# use --user installs to avoid touching system site-packages
+python -m pip install --upgrade --user pip || true
 python -m pip install --user dnspython requests tqdm tabulate || true
 
+echo ""
 echo "[5/6] Creating project folder ~/dns_client ..."
 PROJECT_DIR="$HOME/dns_client"
-mkdir -p "$PROJECT_DIR"
+RESULTS_DIR="${PROJECT_DIR}/results"
+mkdir -p "$RESULTS_DIR"
 cd "$PROJECT_DIR"
 
+echo ""
 echo "[6/6] Creating scripts (dns_full_fullcheck.py and dns_run_menu.sh) ..."
 
 # ---------------- dns_full_fullcheck.py ----------------
@@ -78,7 +90,6 @@ def is_private_ip(s):
         return False
 
 NUMERIC_DNS = [
-# <- full numeric list from your provided lists (kept comprehensive)
 "64.6.65.6","64.6.64.6","156.154.71.2","156.154.70.2","159.250.35.251","159.250.35.250",
 "208.67.220.220","208.67.222.222","37.220.84.124","1.0.0.1","1.1.1.1","199.85.127.1",
 "185.231.182.126","37.152.82.112","2.17.64.0","2.17.46.25","194.36.174.161","178.22.122.100",
@@ -230,7 +241,7 @@ PY
 # make python script executable
 chmod +x dns_full_fullcheck.py
 
-# ---------------- dns_run_menu.sh (with Back option support) ----------------
+# ---------------- dns_run_menu.sh (with Back option support and finglish prompt) ----------------
 cat > dns_run_menu.sh <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -245,10 +256,28 @@ if [ ! -f dns_full_fullcheck.py ]; then
   exit 1
 fi
 
+# MENU: user must type @ana_service to start selecting ISPs
 while true; do
   clear
   echo "======================================="
-  echo "DNS Client Menu"
+  echo "Baray Ejraye Menu Matn  @ana_service  Ra Vared Konid Va Enter Ra Bezanid"
+  echo "======================================="
+  read -p "Type here: " confirm
+
+  if [ "$confirm" = "@ana_service" ] || [ "$confirm" = "@ANA_Service" ] ; then
+    break
+  else
+    echo "You did not type @ana_service. Type exactly: @ana_service"
+    echo "Press Enter to retry..."
+    read -p ""
+  fi
+done
+
+# Main interactive menu with Back option (0)
+while true; do
+  clear
+  echo "======================================="
+  echo "DNS Client Menu (finglish)"
   echo "======================================="
   echo "Select your ISP (or 0 to exit):"
   echo "1) Hamrah Aval"
@@ -268,7 +297,7 @@ while true; do
     4) isp_name="RighTel";;
     5) isp_name="Mokhaberat";;
     6) isp_name="Other";;
-    *) echo "Invalid choice. Press Enter to continue..."; read; continue;;
+    *) echo "Invalid choice. Press Enter to continue..."; read -p ""; continue;;
   esac
 
   # second menu: VPN or no VPN, with Back option
@@ -290,7 +319,7 @@ while true; do
       echo "If you selected VPN ON, please connect your VPN now, then press Enter to continue..."
       read -p ""
     else
-      echo "Invalid choice. Press Enter to retry..."; read; continue
+      echo "Invalid choice. Press Enter to retry..."; read -p ""; continue
     fi
 
     echo "Starting DNS tests for $isp_name (VPN=$vpn_flag)..."
@@ -315,10 +344,14 @@ SH
 
 chmod +x dns_run_menu.sh
 
-echo
+echo ""
 echo "======================================="
 echo "Install complete."
-echo "To start menu: cd ~/dns_client && bash dns_run_menu.sh"
+echo "Now launching the menu..."
+echo "If the menu does not appear, run: cd ~/dns_client && bash dns_run_menu.sh"
 echo "Results will be stored in ~/dns_client/results/"
 echo "Channel: https://t.me/ANA_Service  (@ANA_Service)"
 echo "======================================="
+
+# Launch menu automatically
+bash "$PROJECT_DIR/dns_run_menu.sh"
