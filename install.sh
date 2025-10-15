@@ -1,49 +1,45 @@
 #!/usr/bin/env bash
-# install.sh
-# Auto installer for Termux: prepares environment, installs deps, creates DNS tester and menu.
-# Usage on Termux:
-#   chmod +x install.sh
-#   ./install.sh
-# or (remote):
-#   bash <(curl -fsSL https://raw.githubusercontent.com/YourUser/YourRepo/main/install.sh)
-
 set -euo pipefail
 
-echo
-echo "==============================================="
-echo "  DNS Auto Client — Termux installer"
-echo "  Channel: https://t.me/ANA_Service  (@ANA_Service)"
-echo "==============================================="
-echo
-read -p "برای ادامه Enter را فشار دهید (Ctrl+C برای لغو)..." _
+clear
+echo "======================================="
+echo "Welcome! Please join my Telegram channel:"
+echo "@ANA_Service"
+echo "======================================="
+echo ""
+echo "To run the DNS Client menu, type @ANA_Service and press Enter:"
+read user_input
 
-echo
-echo "[1/6] آپدیت بسته‌های ترموکس..."
+if [ "$user_input" != "@ANA_Service" ]; then
+    echo "You did not type @ANA_Service. Exiting..."
+    exit 1
+fi
+
+echo ""
+echo "Setting up Termux environment..."
+echo "[1/6] Updating packages..."
 pkg update -y || true
 pkg upgrade -y || true
 
-echo
-echo "[2/6] نصب بسته‌های پایه (python, git, curl, nano)..."
+echo "[2/6] Installing base packages (python, git, curl, nano)..."
 pkg install -y python git curl nano || true
 
-echo
-echo "[3/6] اطمینان از pip (user) و افزودن ~/.local/bin به PATH..."
-python -m pip install --upgrade pip --user || true
-export PATH="$HOME/.local/bin:$PATH"
+echo "[3/6] Ensuring pip (user) and adding ~/.local/bin to PATH..."
+# termux python already provides pip; avoid reinstalling system pip
+export PATH="$HOME/.local/bin:$PATH" || true
 
-echo
-echo "[4/6] نصب بسته‌های پایتون مورد نیاز (user install)..."
+echo "[4/6] Installing Python packages (user install)..."
+python -m pip install --user --upgrade pip || true
 python -m pip install --user dnspython requests tqdm tabulate || true
 
-echo
-echo "[5/6] ایجاد پوشه پروژه ~/dns_client و ورود به آن..."
-mkdir -p "$HOME/dns_client"
-cd "$HOME/dns_client"
+echo "[5/6] Creating project folder ~/dns_client ..."
+PROJECT_DIR="$HOME/dns_client"
+mkdir -p "$PROJECT_DIR"
+cd "$PROJECT_DIR"
 
-echo
-echo "[6/6] ساخت فایل‌های اجرایی (dns_full_fullcheck.py و dns_run_menu.sh) ..."
+echo "[6/6] Creating scripts (dns_full_fullcheck.py and dns_run_menu.sh) ..."
 
-# ---------- dns_full_fullcheck.py ----------
+# ---------------- dns_full_fullcheck.py ----------------
 cat > dns_full_fullcheck.py <<'PY'
 #!/usr/bin/env python3
 """
@@ -70,7 +66,10 @@ OUTPUT = "dns_full_results.csv"
 def is_private_ip(s):
     try:
         socket.inet_aton(s)
-        a,b,_,_ = [int(x) for x in s.split(".")]
+        parts = s.split(".")
+        if len(parts) != 4:
+            return False
+        a = int(parts[0]); b = int(parts[1])
         if a == 10: return True
         if a == 172 and 16 <= b <= 31: return True
         if a == 192 and b == 168: return True
@@ -79,6 +78,7 @@ def is_private_ip(s):
         return False
 
 NUMERIC_DNS = [
+# <- full numeric list from your provided lists (kept comprehensive)
 "64.6.65.6","64.6.64.6","156.154.71.2","156.154.70.2","159.250.35.251","159.250.35.250",
 "208.67.220.220","208.67.222.222","37.220.84.124","1.0.0.1","1.1.1.1","199.85.127.1",
 "185.231.182.126","37.152.82.112","2.17.64.0","2.17.46.25","194.36.174.161","178.22.122.100",
@@ -226,13 +226,13 @@ if __name__ == "__main__":
     args = p.parse_args()
     main(args.vpn)
 PY
+
 # make python script executable
 chmod +x dns_full_fullcheck.py
 
-# ---------- dns_run_menu.sh ----------
+# ---------------- dns_run_menu.sh (with Back option support) ----------------
 cat > dns_run_menu.sh <<'SH'
 #!/usr/bin/env bash
-# dns_run_menu.sh - interactive runner for dns_full_fullcheck.py
 set -euo pipefail
 
 PROJECT_DIR="$HOME/dns_client"
@@ -245,60 +245,72 @@ if [ ! -f dns_full_fullcheck.py ]; then
   exit 1
 fi
 
-echo
-echo "======================================="
-echo "         DNS Tester Menu"
-echo "======================================="
-echo "1) تست همراه اول"
-echo "2) تست ایرانسل"
-echo "3) تست شاتل"
-echo "4) تست رایتل"
-echo "5) تست مخابرات"
-echo "6) تست سایر اپراتورها"
-echo "0) خروج"
-read -p "انتخاب کن (عدد): " isp_choice
+while true; do
+  clear
+  echo "======================================="
+  echo "DNS Client Menu"
+  echo "======================================="
+  echo "Select your ISP (or 0 to exit):"
+  echo "1) Hamrah Aval"
+  echo "2) Irancell"
+  echo "3) Shatel"
+  echo "4) RighTel"
+  echo "5) Mokhaberat (MCI)"
+  echo "6) Other ISPs"
+  echo "0) Exit"
+  read -p "Choice: " isp_choice
 
-case "$isp_choice" in
-  1) isp_name="Hamrah";;
-  2) isp_name="Irancell";;
-  3) isp_name="Shatel";;
-  4) isp_name="RighTel";;
-  5) isp_name="Mokhaberat";;
-  6) isp_name="Other";;
-  0) echo "خروج"; exit 0;;
-  *) echo "انتخاب نامعتبر"; exit 1;;
-esac
+  case "$isp_choice" in
+    0) echo "Exiting..."; exit 0;;
+    1) isp_name="Hamrah";;
+    2) isp_name="Irancell";;
+    3) isp_name="Shatel";;
+    4) isp_name="RighTel";;
+    5) isp_name="Mokhaberat";;
+    6) isp_name="Other";;
+    *) echo "Invalid choice. Press Enter to continue..."; read; continue;;
+  esac
 
-echo
-echo "روش تست:"
-echo "1) بدون VPN"
-echo "2) با VPN (قبل ادامه لطفاً به VPN متصل شو)"
-read -p "انتخاب (1 یا 2): " vpn_choice
+  # second menu: VPN or no VPN, with Back option
+  while true; do
+    clear
+    echo "Selected ISP: $isp_name"
+    echo "Choose test mode (or 0 to go back):"
+    echo "1) Test WITHOUT VPN"
+    echo "2) Test WITH VPN"
+    echo "0) Back"
+    read -p "Choice: " vpn_choice
 
-if [ "$vpn_choice" = "1" ]; then
-  vpn_flag="OFF"
-elif [ "$vpn_choice" = "2" ]; then
-  vpn_flag="ON"
-  echo "اگر هنوز به VPN متصل نیستی، الان وصل شو و بعد Enter را بزن."
-  read -p "وقتی متصل شدی Enter بزن..."
-else
-  echo "انتخاب VPN نامعتبر"; exit 1
-fi
+    if [ "$vpn_choice" = "0" ]; then
+      break
+    elif [ "$vpn_choice" = "1" ]; then
+      vpn_flag="OFF"
+    elif [ "$vpn_choice" = "2" ]; then
+      vpn_flag="ON"
+      echo "If you selected VPN ON, please connect your VPN now, then press Enter to continue..."
+      read -p ""
+    else
+      echo "Invalid choice. Press Enter to retry..."; read; continue
+    fi
 
-echo
-echo "شروع تست — ممکن است چند دقیقه طول بکشد..."
-python3 dns_full_fullcheck.py --vpn "$vpn_flag"
+    echo "Starting DNS tests for $isp_name (VPN=$vpn_flag)..."
+    python3 dns_full_fullcheck.py --vpn "$vpn_flag"
 
-ts=$(date +%Y%m%d_%H%M%S)
-outname="${isp_name}_${vpn_flag}_${ts}.csv"
-if [ -f dns_full_results.csv ]; then
-  mv dns_full_results.csv "${RESULTS_DIR}/${outname}"
-  echo "خروجی ذخیره شد به: ${RESULTS_DIR}/${outname}"
-else
-  echo "خروجی dns_full_results.csv پیدا نشد."
-fi
+    ts=$(date +%Y%m%d_%H%M%S)
+    outname="${isp_name}_${vpn_flag}_${ts}.csv"
+    if [ -f dns_full_results.csv ]; then
+      mv dns_full_results.csv "${RESULTS_DIR}/${outname}"
+      echo "Results saved to: ${RESULTS_DIR}/${outname}"
+    else
+      echo "dns_full_results.csv not found - something went wrong."
+    fi
 
-echo "پایان. برای اجرای دوباره: cd $PROJECT_DIR && bash dns_run_menu.sh"
+    echo ""
+    echo "Press Enter to return to main menu..."
+    read -p ""
+    break
+  done
+done
 SH
 
 chmod +x dns_run_menu.sh
