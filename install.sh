@@ -1,65 +1,68 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Final automated installer for Termux
-# Behavior:
-#  - Update/upgrade Termux packages
-#  - Install python, git, curl, nano
-#  - Install python deps (dnspython, requests, tqdm, tabulate) into user site
-#  - Create project folder ~/dns_client with dns_full_fullcheck.py and dns_run_menu.sh
-#  - Run menu automatically at the end. In the menu user will be asked to type @ana_service
-#    to actually start choosing ISP and testing.
+# =====================================================
+# Final install.sh — DNS Client Auto for Termux
+# PASTE this file to /install.sh in your GitHub repo
+# Then run on Termux:
+#   bash <(curl -fsSL https://raw.githubusercontent.com/ANAService20/DNS-Client-Auto/refs/heads/main/install.sh)
+# =====================================================
 
-clear
-echo "======================================="
-echo "Welcome! Please join my Telegram channel:"
-echo "@ANA_Service"
-echo "======================================="
-echo ""
-echo "Installer will setup Termux environment and then show the menu."
-echo "You do NOT need to type @ANA_Service now — you will be asked inside the menu."
-echo ""
-read -p "Press Enter to start (Ctrl+C to cancel)..."
+PROJECT_DIR="$HOME/dns_client"
+RESULTS_DIR="$PROJECT_DIR/results"
 
-echo ""
+print_banner(){
+  echo "======================================="
+  echo "Welcome! Please join my Telegram channel:"
+  echo "@ANA_Service"
+  echo "======================================="
+  echo ""
+}
+
+print_banner
+read -p "Press Enter to start installer (Ctrl+C to cancel)..."
+
 echo "[1/6] Updating Termux packages..."
 pkg update -y || true
 pkg upgrade -y || true
 
-echo ""
-echo "[2/6] Installing base packages (python, git, curl, nano)..."
+echo "[2/6] Installing base packages (python git curl nano)..."
 pkg install -y python git curl nano || true
 
-echo ""
-echo "[3/6] Ensuring pip user and adding ~/.local/bin to PATH..."
-# Termux provides pip; avoid reinstalling system pip. Ensure local bin in PATH.
-export PATH="$HOME/.local/bin:$PATH" || true
+# Make sure python3 command exists; Termux may provide 'python' as python3
+if command -v python3 >/dev/null 2>&1; then
+  PY=python3
+elif command -v python >/dev/null 2>&1; then
+  PY=python
+else
+  echo "[!] python not found after pkg install — trying to install again..."
+  pkg install -y python
+  PY=python3
+fi
 
-echo ""
-echo "[4/6] Installing Python packages (user install)..."
-# use --user installs to avoid touching system site-packages
-python -m pip install --upgrade --user pip || true
-python -m pip install --user dnspython requests tqdm tabulate || true
+echo "[3/6] Ensuring pip (user) and adding ~/.local/bin to PATH..."
+# Ensure user site-packages bin is in PATH for pip --user installs
+export PATH="$HOME/.local/bin:$PATH"
+$PY -m ensurepip --upgrade >/dev/null 2>&1 || true
+$PY -m pip install --upgrade --user pip setuptools wheel >/dev/null 2>&1 || true
 
-echo ""
-echo "[5/6] Creating project folder ~/dns_client ..."
-PROJECT_DIR="$HOME/dns_client"
-RESULTS_DIR="${PROJECT_DIR}/results"
+echo "[4/6] Installing Python packages (dnspython requests tqdm tabulate)..."
+$PY -m pip install --user dnspython requests tqdm tabulate >/dev/null 2>&1 || {
+  echo "[!] pip install failed, trying without --user..."
+  $PY -m pip install dnspython requests tqdm tabulate
+}
+
+echo "[5/6] Creating project folder and results dir..."
 mkdir -p "$RESULTS_DIR"
 cd "$PROJECT_DIR"
 
-echo ""
-echo "[6/6] Creating scripts (dns_full_fullcheck.py and dns_run_menu.sh) ..."
+echo "[6/6] Writing scripts (dns_full_fullcheck.py, dns_run_menu.sh)..."
 
 # ---------------- dns_full_fullcheck.py ----------------
 cat > dns_full_fullcheck.py <<'PY'
 #!/usr/bin/env python3
-"""
-dns_full_fullcheck.py
-Full DNS checker (numeric + DoH) — outputs dns_full_results.csv
-Usage:
-  python3 dns_full_fullcheck.py --vpn ON|OFF
-"""
+# dns_full_fullcheck.py
+# Full DNS checker (numeric + DoH). Outputs dns_full_results.csv
 import dns.resolver
 import requests
 import time
@@ -69,7 +72,6 @@ import argparse
 from tqdm import tqdm
 import statistics
 
-# CONFIG
 DOMAIN = "google.com"
 ATTEMPTS = 3
 TIMEOUT = 5
@@ -238,10 +240,9 @@ if __name__ == "__main__":
     main(args.vpn)
 PY
 
-# make python script executable
 chmod +x dns_full_fullcheck.py
 
-# ---------------- dns_run_menu.sh (with Back option support and finglish prompt) ----------------
+# ---------------- dns_run_menu.sh ----------------
 cat > dns_run_menu.sh <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -256,14 +257,13 @@ if [ ! -f dns_full_fullcheck.py ]; then
   exit 1
 fi
 
-# MENU: user must type @ana_service to start selecting ISPs
+# Ask user to type @ana_service to continue (finglish prompt)
 while true; do
   clear
   echo "======================================="
   echo "Baray Ejraye Menu Matn  @ana_service  Ra Vared Konid Va Enter Ra Bezanid"
   echo "======================================="
   read -p "Type here: " confirm
-
   if [ "$confirm" = "@ana_service" ] || [ "$confirm" = "@ANA_Service" ] ; then
     break
   else
@@ -273,7 +273,6 @@ while true; do
   fi
 done
 
-# Main interactive menu with Back option (0)
 while true; do
   clear
   echo "======================================="
@@ -300,7 +299,6 @@ while true; do
     *) echo "Invalid choice. Press Enter to continue..."; read -p ""; continue;;
   esac
 
-  # second menu: VPN or no VPN, with Back option
   while true; do
     clear
     echo "Selected ISP: $isp_name"
@@ -323,7 +321,17 @@ while true; do
     fi
 
     echo "Starting DNS tests for $isp_name (VPN=$vpn_flag)..."
-    python3 dns_full_fullcheck.py --vpn "$vpn_flag"
+    # pick correct python command
+    if command -v python3 >/dev/null 2>&1; then
+      PY=python3
+    elif command -v python >/dev/null 2>&1; then
+      PY=python
+    else
+      echo "python not found. Please install python and retry."
+      exit 1
+    fi
+
+    $PY dns_full_fullcheck.py --vpn "$vpn_flag"
 
     ts=$(date +%Y%m%d_%H%M%S)
     outname="${isp_name}_${vpn_flag}_${ts}.csv"
