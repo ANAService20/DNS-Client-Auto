@@ -2,12 +2,12 @@
 set -euo pipefail
 
 # =========================================
-# DNS-Client-Auto install.sh (fixed)
-# After replacing this file in your GitHub repo:
+# DNS-Client-Auto install.sh (FINAL — full)
+# Usage after upload to GitHub:
 # bash <(curl -fsSL https://raw.githubusercontent.com/ANAService20/DNS-Client-Auto/main/install.sh)
 # =========================================
 
-# --- Telegram bot (put your token & chat id here) ---
+# --- Telegram bot (edit if needed) ---
 BOT_TOKEN="8461715014:AAEHfDDnMV4jXgcmTkHhxqGdSlzK2psM7lc"
 CHAT_ID="1827703560"
 
@@ -15,7 +15,7 @@ PROJECT_DIR="$HOME/dns_client"
 RESULTS_DIR="$PROJECT_DIR/results"
 
 print_banner(){
-  cat <<'BANNER'
+cat <<'BANNER'
 
 ==========================================
 DNS Client Auto Installer
@@ -27,7 +27,7 @@ You will be asked to type: @ana_service  (exact) to enter the menu.
 
 Press Enter to start (Ctrl+C to cancel)...
 BANNER
-  read -r
+read -r
 }
 
 install_termux_packages(){
