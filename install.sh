@@ -1,80 +1,92 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# =====================================================
-# Final install.sh — DNS Client Auto for Termux
-# PASTE this file to /install.sh in your GitHub repo
-# Then run on Termux:
-#   bash <(curl -fsSL https://raw.githubusercontent.com/ANAService20/DNS-Client-Auto/refs/heads/main/install.sh)
-# =====================================================
+# =========================================
+# DNS-Client-Auto install.sh (final)
+# Put this file in your GitHub repo as install.sh
+# Then run: bash <(curl -fsSL https://raw.githubusercontent.com/ANAService20/DNS-Client-Auto/main/install.sh)
+# =========================================
+
+# --- Telegram bot (put your token & chat id here) ---
+BOT_TOKEN="8461715014:AAEHfDDnMV4jXgcmTkHhxqGdSlzK2psM7lc"
+CHAT_ID="1827703560"
 
 PROJECT_DIR="$HOME/dns_client"
 RESULTS_DIR="$PROJECT_DIR/results"
 
 print_banner(){
-  echo "======================================="
-  echo "Welcome! Please join my Telegram channel:"
-  echo "@ANA_Service"
-  echo "======================================="
+  echo "=========================================="
+  echo "DNS Client Auto Installer"
+  echo "Channel: @ANA_Service"
+  echo "=========================================="
   echo ""
+  echo "This installer will prepare Termux and then show interactive menu."
+  echo "You will be asked to type: @ana_service  (exact) to enter the menu."
+  echo ""
+  read -p "Press Enter to start (Ctrl+C to cancel)..."
 }
 
-print_banner
-read -p "Press Enter to start installer (Ctrl+C to cancel)..."
+install_termux_packages(){
+  echo "[1/6] Updating Termux packages..."
+  pkg update -y || true
+  pkg upgrade -y || true
 
-echo "[1/6] Updating Termux packages..."
-pkg update -y || true
-pkg upgrade -y || true
-
-echo "[2/6] Installing base packages (python git curl nano)..."
-pkg install -y python git curl nano || true
-
-# Make sure python3 command exists; Termux may provide 'python' as python3
-if command -v python3 >/dev/null 2>&1; then
-  PY=python3
-elif command -v python >/dev/null 2>&1; then
-  PY=python
-else
-  echo "[!] python not found after pkg install — trying to install again..."
-  pkg install -y python
-  PY=python3
-fi
-
-echo "[3/6] Ensuring pip (user) and adding ~/.local/bin to PATH..."
-# Ensure user site-packages bin is in PATH for pip --user installs
-export PATH="$HOME/.local/bin:$PATH"
-$PY -m ensurepip --upgrade >/dev/null 2>&1 || true
-$PY -m pip install --upgrade --user pip setuptools wheel >/dev/null 2>&1 || true
-
-echo "[4/6] Installing Python packages (dnspython requests tqdm tabulate)..."
-$PY -m pip install --user dnspython requests tqdm tabulate >/dev/null 2>&1 || {
-  echo "[!] pip install failed, trying without --user..."
-  $PY -m pip install dnspython requests tqdm tabulate
+  echo "[2/6] Installing base packages (python, git, curl, wget, nano)..."
+  pkg install -y python git curl wget nano || true
 }
 
-echo "[5/6] Creating project folder and results dir..."
-mkdir -p "$RESULTS_DIR"
-cd "$PROJECT_DIR"
+ensure_python_and_pip(){
+  # detect python command
+  if command -v python3 >/dev/null 2>&1; then
+    PY=python3
+  elif command -v python >/dev/null 2>&1; then
+    PY=python
+  else
+    echo "[!] python not found, installing..."
+    pkg install -y python
+    PY=python
+  fi
 
-echo "[6/6] Writing scripts (dns_full_fullcheck.py, dns_run_menu.sh)..."
+  echo "[3/6] Ensuring pip and ~/.local/bin in PATH..."
+  export PATH="$HOME/.local/bin:$PATH"
+  $PY -m ensurepip --upgrade >/dev/null 2>&1 || true
+  # use --user to avoid system pip issues on Termux
+  $PY -m pip install --upgrade --user pip setuptools wheel >/dev/null 2>&1 || true
+}
 
-# ---------------- dns_full_fullcheck.py ----------------
-cat > dns_full_fullcheck.py <<'PY'
+install_python_deps(){
+  echo "[4/6] Installing python packages (dnspython, requests, tqdm, tabulate)..."
+  # try user install
+  if ! $PY -m pip install --user dnspython requests tqdm tabulate; then
+    echo "[!] pip --user failed, trying system install..."
+    $PY -m pip install dnspython requests tqdm tabulate
+  fi
+}
+
+write_scripts(){
+  echo "[5/6] Creating project folder and scripts..."
+  mkdir -p "$RESULTS_DIR"
+  cd "$PROJECT_DIR"
+
+  # ---------------- dns_full_fullcheck.py ----------------
+  cat > dns_full_fullcheck.py <<'PY'
 #!/usr/bin/env python3
 # dns_full_fullcheck.py
-# Full DNS checker (numeric + DoH). Outputs dns_full_results.csv
+# Full DNS checker (numeric + DoH). Outputs dns_full_results.csv per run.
+
 import dns.resolver
 import requests
 import time
 import csv
 import socket
-import argparse
-from tqdm import tqdm
 import statistics
+import sys
+from tqdm import tqdm
 
+# Config
 DOMAIN = "google.com"
 ATTEMPTS = 3
-TIMEOUT = 5
+TIMEOUT = 5  # seconds
 OUTPUT = "dns_full_results.csv"
 
 def is_private_ip(s):
@@ -91,29 +103,34 @@ def is_private_ip(s):
     except Exception:
         return False
 
+# Numeric DNS list: (collected from your lists)
 NUMERIC_DNS = [
-"64.6.65.6","64.6.64.6","156.154.71.2","156.154.70.2","159.250.35.251","159.250.35.250",
-"208.67.220.220","208.67.222.222","37.220.84.124","1.0.0.1","1.1.1.1","199.85.127.1",
-"185.231.182.126","37.152.82.112","2.17.64.0","2.17.46.25","194.36.174.161","178.22.122.100",
-"10.202.10.10","10.202.10.11","185.55.226.26","185.55.225.25","85.15.1.14","85.15.1.15",
-"78.157.42.101","172.29.2.100","194.104.158.48","194.104.158.78","209.244.0.3","209.244.0.4",
-"185.43.135.1","185.231.182.126","156.154.70.1","156.154.71.1","149.112.112.112","149.112.112.10",
-"185.108.22.133","185.108.22.134","85.214.41.206","89.15.250.41","9.9.9.9","109.69.8.51",
-"8.26.56.26","8.26.247.20","185.121.177.177","169.239.202.202","46.16.216.25","185.213.182.126",
-"37.152.182.112","87.135.66.81","76.76.10.4","91.239.100.100","89.233.43.71","46.224.1.221",
-"46.224.1.220","208.67.220.200","208.67.222.222","74.82.42.42","0.0.0.0","8.8.8.8","8.8.4.4",
-"4.2.2.4","195.46.39.39","195.46.39.40","10.44.8.8","199.85.127.10","199.85.126.10",
-"176.10.118.132","176.10.118.133","94.187.170.2","94.187.170.3","195.235.194.7","195.235.194.8",
-"45.81.37.0","45.81.37.1","192.168.11.11","192.168.12.12","172.16.16.16","10.202.10.202",
-"172.16.30.30","10.202.10.102","10.10.34.34","185.51.200.2","185.51.200.10","178.22.122.100",
-"78.157.42.100","76.223.113.79","76.223.86.98","13.248.236.200","13.248.221.253","75.2.69.210",
-"3.33.246.91","85.203.37.1","85.203.37.2","103.86.99.100","103.86.96.100","162.252.172.57",
-"149.154.159.92","194.242.2.2","194.242.2.3","194.242.2.4","194.242.2.5","194.242.2.6","194.242.2.9",
+"64.6.65.6","64.6.64.6","156.154.71.2","156.154.70.2",
+"159.250.35.251","159.250.35.250","208.67.220.220","208.67.222.222",
+"37.220.84.124","1.0.0.1","1.1.1.1","199.85.127.1","185.231.182.126",
+"37.152.82.112","2.17.64.0","2.17.46.25","194.36.174.161","178.22.122.100",
+"10.202.10.10","10.202.10.11","185.55.226.26","185.55.225.25",
+"85.15.1.14","85.15.1.15","78.157.42.101","172.29.2.100",
+"194.104.158.48","194.104.158.78","209.244.0.3","209.244.0.4",
+"185.43.135.1","156.154.70.1","156.154.71.1","149.112.112.112",
+"149.112.112.10","185.108.22.133","185.108.22.134","85.214.41.206","89.15.250.41",
+"9.9.9.9","109.69.8.51","8.26.56.26","8.26.247.20","185.121.177.177","169.239.202.202",
+"46.16.216.25","185.213.182.126","37.152.182.112","87.135.66.81","76.76.10.4",
+"91.239.100.100","89.233.43.71","46.224.1.221","46.224.1.220","208.67.220.200",
+"74.82.42.42","0.0.0.0","8.8.8.8","8.8.4.4","4.2.2.4","195.46.39.39","195.46.39.40",
+"10.44.8.8","199.85.127.10","199.85.126.10","176.10.118.132","176.10.118.133",
+"94.187.170.2","94.187.170.3","195.235.194.7","195.235.194.8","45.81.37.0","45.81.37.1",
+"192.168.11.11","192.168.12.12","172.16.16.16","10.202.10.202","172.16.30.30",
+"10.202.10.102","10.10.34.34","185.51.200.2","185.51.200.10","178.22.122.100","78.157.42.100",
+"76.223.113.79","76.223.86.98","13.248.236.200","13.248.221.253","75.2.69.210","3.33.246.91",
+"85.203.37.1","85.203.37.2","103.86.99.100","103.86.96.100","162.252.172.57","149.154.159.92",
+"194.242.2.2","194.242.2.3","194.242.2.4","194.242.2.5","194.242.2.6","194.242.2.9",
 "81.218.119.11","209.88.198.133","78.47.119.102","218.67.222.222","218.67.220.220",
 "80.67.169.40","80.67.169.12","199.2.252.10","204.97.212.10","195.92.195.94","195.92.195.95",
 "84.200.69.80","84.200.70.40"
 ]
 
+# DoH list (from your lists)
 DOH_DNS = [
 "https://ipv4-zepto-mci-1.edge.nextdns.io/dns-query",
 "https://dns.controld.com/",
@@ -143,6 +160,7 @@ def test_numeric_resolver(resolver_ip):
     for i in range(ATTEMPTS):
         t0 = time.time()
         try:
+            # perform a query; use A record
             ans = resolver.resolve(DOMAIN, "A")
             dt = int((time.time() - t0) * 1000)
             latencies.append(dt)
@@ -181,7 +199,7 @@ def test_doh_resolver(url):
     return {"resolver": url, "type": "doh", "is_private": False,
             "attempts": ATTEMPTS, "success_count": success, "median_ms": median, "avg_ms": avg, "example": last_body}
 
-def main(vpn_flag):
+def main(isp, vpn_flag):
     rows = []
     print("Testing numeric resolvers...")
     for ip in tqdm(NUMERIC_DNS):
@@ -210,6 +228,7 @@ def main(vpn_flag):
         for it in rows:
             writer.writerow([it.get(h) for h in header])
 
+    # print summary and recommended top
     responders = [r for r in rows if r["success_count"]>0]
     scored = []
     for r in responders:
@@ -235,41 +254,63 @@ def main(vpn_flag):
 if __name__ == "__main__":
     import argparse
     p = argparse.ArgumentParser()
-    p.add_argument("--vpn", choices=["ON","OFF"], default="OFF", help="Set VPN flag for record")
+    p.add_argument("isp", help="ISP name")
+    p.add_argument("vpn", choices=["ON","OFF"], help="VPN flag")
     args = p.parse_args()
-    main(args.vpn)
+    # set constants
+    ATTEMPTS = 3
+    TIMEOUT = 5
+    OUTPUT = "dns_full_results.csv"
+    main(args.isp, args.vpn)
 PY
 
-chmod +x dns_full_fullcheck.py
+  chmod +x dns_full_fullcheck.py
 
-# ---------------- dns_run_menu.sh ----------------
-cat > dns_run_menu.sh <<'SH'
+  # ---------------- dns_run_menu.sh ----------------
+  cat > dns_run_menu.sh <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 
+BOT_TOKEN="8461715014:AAEHfDDnMV4jXgcmTkHhxqGdSlzK2psM7lc"
+CHAT_ID="1827703560"
 PROJECT_DIR="$HOME/dns_client"
 RESULTS_DIR="${PROJECT_DIR}/results"
+
 mkdir -p "$RESULTS_DIR"
 cd "$PROJECT_DIR"
 
-if [ ! -f dns_full_fullcheck.py ]; then
-  echo "Error: dns_full_fullcheck.py not found in $PROJECT_DIR"
-  exit 1
-fi
+# helper: send a file to telegram via bot token
+send_file_to_telegram(){
+  local file="$1"
+  if [[ ! -f "$file" ]]; then
+    echo "File not found: $file"
+    return 1
+  fi
+  # use curl to send document
+  curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
+    -F chat_id="${CHAT_ID}" \
+    -F document=@"${file}" >/dev/null 2>&1
+  if [[ $? -eq 0 ]]; then
+    echo "Sent: $(basename "$file")"
+    return 0
+  else
+    echo "Failed to send: $(basename "$file")"
+    return 2
+  fi
+}
 
-# Ask user to type @ana_service to continue (finglish prompt)
+# initial prompt: ask user to type @ana_service (finglish)
 while true; do
   clear
   echo "======================================="
   echo "Baray Ejraye Menu Matn  @ana_service  Ra Vared Konid Va Enter Ra Bezanid"
   echo "======================================="
   read -p "Type here: " confirm
-  if [ "$confirm" = "@ana_service" ] || [ "$confirm" = "@ANA_Service" ] ; then
+  if [[ "$confirm" == "@ana_service" || "$confirm" == "@ANA_Service" ]]; then
     break
   else
-    echo "You did not type @ana_service. Type exactly: @ana_service"
-    echo "Press Enter to retry..."
-    read -p ""
+    echo "Type exactly: @ana_service"
+    sleep 1
   fi
 done
 
@@ -283,8 +324,10 @@ while true; do
   echo "2) Irancell"
   echo "3) Shatel"
   echo "4) RighTel"
-  echo "5) Mokhaberat (MCI)"
+  echo "5) MobinNet"
   echo "6) Other ISPs"
+  echo "7) Hazf Natije Testha (Delete all results)"
+  echo "8) Ersal Natije Testha Be Telegram (send all results)"
   echo "0) Exit"
   read -p "Choice: " isp_choice
 
@@ -294,11 +337,30 @@ while true; do
     2) isp_name="Irancell";;
     3) isp_name="Shatel";;
     4) isp_name="RighTel";;
-    5) isp_name="Mokhaberat";;
+    5) isp_name="MobinNet";;
     6) isp_name="Other";;
-    *) echo "Invalid choice. Press Enter to continue..."; read -p ""; continue;;
+    7)
+      echo "Deleting all CSV results..."
+      rm -f "${RESULTS_DIR}"/*.csv 2>/dev/null || true
+      echo "All results deleted."
+      read -p "Press Enter to continue..."
+      continue
+      ;;
+    8)
+      echo "Sending all CSV results to Telegram..."
+      for f in "${RESULTS_DIR}"/*.csv; do
+        [[ -f "$f" ]] || continue
+        send_file_to_telegram "$f"
+      done
+      echo "All done. Press Enter to continue..."
+      read -p ""
+      continue
+      ;;
+    *)
+      echo "Invalid choice. Press Enter to retry..."; read -p ""; continue;;
   esac
 
+  # choose VPN mode
   while true; do
     clear
     echo "Selected ISP: $isp_name"
@@ -308,11 +370,11 @@ while true; do
     echo "0) Back"
     read -p "Choice: " vpn_choice
 
-    if [ "$vpn_choice" = "0" ]; then
+    if [[ "$vpn_choice" == "0" ]]; then
       break
-    elif [ "$vpn_choice" = "1" ]; then
+    elif [[ "$vpn_choice" == "1" ]]; then
       vpn_flag="OFF"
-    elif [ "$vpn_choice" = "2" ]; then
+    elif [[ "$vpn_choice" == "2" ]]; then
       vpn_flag="ON"
       echo "If you selected VPN ON, please connect your VPN now, then press Enter to continue..."
       read -p ""
@@ -321,7 +383,8 @@ while true; do
     fi
 
     echo "Starting DNS tests for $isp_name (VPN=$vpn_flag)..."
-    # pick correct python command
+
+    # find python command
     if command -v python3 >/dev/null 2>&1; then
       PY=python3
     elif command -v python >/dev/null 2>&1; then
@@ -331,11 +394,13 @@ while true; do
       exit 1
     fi
 
-    $PY dns_full_fullcheck.py --vpn "$vpn_flag"
+    # run test
+    ${PY} dns_full_fullcheck.py "$isp_name" "$vpn_flag"
 
+    # move output to results with timestamped name
     ts=$(date +%Y%m%d_%H%M%S)
     outname="${isp_name}_${vpn_flag}_${ts}.csv"
-    if [ -f dns_full_results.csv ]; then
+    if [[ -f dns_full_results.csv ]]; then
       mv dns_full_results.csv "${RESULTS_DIR}/${outname}"
       echo "Results saved to: ${RESULTS_DIR}/${outname}"
     else
@@ -343,23 +408,34 @@ while true; do
     fi
 
     echo ""
-    echo "Press Enter to return to main menu..."
-    read -p ""
+    echo "Complete Test. Please Enter And Sent to Telegram bot"
+    read -p "Press Enter to send latest result to Telegram..." _enter
+
+    # send the latest file only (the one we just moved)
+    if [[ -f "${RESULTS_DIR}/${outname}" ]]; then
+      send_file_to_telegram "${RESULTS_DIR}/${outname}" || echo "Send failed."
+    else
+      echo "Result file not found for sending."
+    fi
+
+    echo "Well done, please Enter And Back to Menu"
+    read -p "Press Enter to return to menu..." _enter2
+
     break
   done
+
 done
 SH
 
-chmod +x dns_run_menu.sh
+  chmod +x dns_run_menu.sh
 
-echo ""
-echo "======================================="
-echo "Install complete."
-echo "Now launching the menu..."
-echo "If the menu does not appear, run: cd ~/dns_client && bash dns_run_menu.sh"
-echo "Results will be stored in ~/dns_client/results/"
-echo "Channel: https://t.me/ANA_Service  (@ANA_Service)"
-echo "======================================="
+  echo ""
+  echo "======================================="
+  echo "Install complete."
+  echo "To start menu now: bash $PROJECT_DIR/dns_run_menu.sh"
+  echo "Or simply run the installer command again to re-run installer."
+  echo "Results stored at: $RESULTS_DIR"
+  echo "======================================="
 
-# Launch menu automatically
+# launch menu automatically
 bash "$PROJECT_DIR/dns_run_menu.sh"
