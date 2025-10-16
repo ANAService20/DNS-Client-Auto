@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # =========================================
-# DNS-Client-Auto install.sh (final)
-# Put this file in your GitHub repo as install.sh
-# Then run: bash <(curl -fsSL https://raw.githubusercontent.com/ANAService20/DNS-Client-Auto/main/install.sh)
+# DNS-Client-Auto install.sh (fixed)
+# After replacing this file in your GitHub repo:
+# bash <(curl -fsSL https://raw.githubusercontent.com/ANAService20/DNS-Client-Auto/main/install.sh)
 # =========================================
 
 # --- Telegram bot (put your token & chat id here) ---
@@ -15,15 +15,19 @@ PROJECT_DIR="$HOME/dns_client"
 RESULTS_DIR="$PROJECT_DIR/results"
 
 print_banner(){
-  echo "=========================================="
-  echo "DNS Client Auto Installer"
-  echo "Channel: @ANA_Service"
-  echo "=========================================="
-  echo ""
-  echo "This installer will prepare Termux and then show interactive menu."
-  echo "You will be asked to type: @ana_service  (exact) to enter the menu."
-  echo ""
-  read -p "Press Enter to start (Ctrl+C to cancel)..."
+  cat <<'BANNER'
+
+==========================================
+DNS Client Auto Installer
+Channel: @ANA_Service
+==========================================
+
+This installer will prepare Termux and then show an interactive menu.
+You will be asked to type: @ana_service  (exact) to enter the menu.
+
+Press Enter to start (Ctrl+C to cancel)...
+BANNER
+  read -r
 }
 
 install_termux_packages(){
@@ -36,7 +40,6 @@ install_termux_packages(){
 }
 
 ensure_python_and_pip(){
-  # detect python command
   if command -v python3 >/dev/null 2>&1; then
     PY=python3
   elif command -v python >/dev/null 2>&1; then
@@ -50,14 +53,12 @@ ensure_python_and_pip(){
   echo "[3/6] Ensuring pip and ~/.local/bin in PATH..."
   export PATH="$HOME/.local/bin:$PATH"
   $PY -m ensurepip --upgrade >/dev/null 2>&1 || true
-  # use --user to avoid system pip issues on Termux
   $PY -m pip install --upgrade --user pip setuptools wheel >/dev/null 2>&1 || true
 }
 
 install_python_deps(){
   echo "[4/6] Installing python packages (dnspython, requests, tqdm, tabulate)..."
-  # try user install
-  if ! $PY -m pip install --user dnspython requests tqdm tabulate; then
+  if ! $PY -m pip install --user dnspython requests tqdm tabulate >/dev/null 2>&1; then
     echo "[!] pip --user failed, trying system install..."
     $PY -m pip install dnspython requests tqdm tabulate
   fi
@@ -66,7 +67,8 @@ install_python_deps(){
 write_scripts(){
   echo "[5/6] Creating project folder and scripts..."
   mkdir -p "$RESULTS_DIR"
-  cd "$PROJECT_DIR"
+  mkdir -p "$PROJECT_DIR"
+  cd "$PROJECT_DIR" || exit 1
 
   # ---------------- dns_full_fullcheck.py ----------------
   cat > dns_full_fullcheck.py <<'PY'
@@ -103,7 +105,6 @@ def is_private_ip(s):
     except Exception:
         return False
 
-# Numeric DNS list: (collected from your lists)
 NUMERIC_DNS = [
 "64.6.65.6","64.6.64.6","156.154.71.2","156.154.70.2",
 "159.250.35.251","159.250.35.250","208.67.220.220","208.67.222.222",
@@ -130,7 +131,6 @@ NUMERIC_DNS = [
 "84.200.69.80","84.200.70.40"
 ]
 
-# DoH list (from your lists)
 DOH_DNS = [
 "https://ipv4-zepto-mci-1.edge.nextdns.io/dns-query",
 "https://dns.controld.com/",
@@ -160,7 +160,6 @@ def test_numeric_resolver(resolver_ip):
     for i in range(ATTEMPTS):
         t0 = time.time()
         try:
-            # perform a query; use A record
             ans = resolver.resolve(DOMAIN, "A")
             dt = int((time.time() - t0) * 1000)
             latencies.append(dt)
@@ -228,7 +227,6 @@ def main(isp, vpn_flag):
         for it in rows:
             writer.writerow([it.get(h) for h in header])
 
-    # print summary and recommended top
     responders = [r for r in rows if r["success_count"]>0]
     scored = []
     for r in responders:
@@ -257,7 +255,6 @@ if __name__ == "__main__":
     p.add_argument("isp", help="ISP name")
     p.add_argument("vpn", choices=["ON","OFF"], help="VPN flag")
     args = p.parse_args()
-    # set constants
     ATTEMPTS = 3
     TIMEOUT = 5
     OUTPUT = "dns_full_results.csv"
@@ -279,14 +276,12 @@ RESULTS_DIR="${PROJECT_DIR}/results"
 mkdir -p "$RESULTS_DIR"
 cd "$PROJECT_DIR"
 
-# helper: send a file to telegram via bot token
 send_file_to_telegram(){
   local file="$1"
   if [[ ! -f "$file" ]]; then
     echo "File not found: $file"
     return 1
   fi
-  # use curl to send document
   curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
     -F chat_id="${CHAT_ID}" \
     -F document=@"${file}" >/dev/null 2>&1
@@ -299,7 +294,6 @@ send_file_to_telegram(){
   fi
 }
 
-# initial prompt: ask user to type @ana_service (finglish)
 while true; do
   clear
   echo "======================================="
@@ -308,9 +302,6 @@ while true; do
   read -p "Type here: " confirm
   if [[ "$confirm" == "@ana_service" || "$confirm" == "@ANA_Service" ]]; then
     break
-  else
-    echo "Type exactly: @ana_service"
-    sleep 1
   fi
 done
 
@@ -360,7 +351,6 @@ while true; do
       echo "Invalid choice. Press Enter to retry..."; read -p ""; continue;;
   esac
 
-  # choose VPN mode
   while true; do
     clear
     echo "Selected ISP: $isp_name"
@@ -384,7 +374,6 @@ while true; do
 
     echo "Starting DNS tests for $isp_name (VPN=$vpn_flag)..."
 
-    # find python command
     if command -v python3 >/dev/null 2>&1; then
       PY=python3
     elif command -v python >/dev/null 2>&1; then
@@ -394,10 +383,8 @@ while true; do
       exit 1
     fi
 
-    # run test
     ${PY} dns_full_fullcheck.py "$isp_name" "$vpn_flag"
 
-    # move output to results with timestamped name
     ts=$(date +%Y%m%d_%H%M%S)
     outname="${isp_name}_${vpn_flag}_${ts}.csv"
     if [[ -f dns_full_results.csv ]]; then
@@ -411,7 +398,6 @@ while true; do
     echo "Complete Test. Please Enter And Sent to Telegram bot"
     read -p "Press Enter to send latest result to Telegram..." _enter
 
-    # send the latest file only (the one we just moved)
     if [[ -f "${RESULTS_DIR}/${outname}" ]]; then
       send_file_to_telegram "${RESULTS_DIR}/${outname}" || echo "Send failed."
     else
@@ -433,9 +419,20 @@ SH
   echo "======================================="
   echo "Install complete."
   echo "To start menu now: bash $PROJECT_DIR/dns_run_menu.sh"
-  echo "Or simply run the installer command again to re-run installer."
   echo "Results stored at: $RESULTS_DIR"
   echo "======================================="
+  echo ""
 
-# launch menu automatically
-bash "$PROJECT_DIR/dns_run_menu.sh"
+  # launch menu automatically
+  bash "$PROJECT_DIR/dns_run_menu.sh"
+}
+
+main(){
+  print_banner
+  install_termux_packages
+  ensure_python_and_pip
+  install_python_deps
+  write_scripts
+}
+
+main
